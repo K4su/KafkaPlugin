@@ -1,0 +1,52 @@
+version: '3'
+services:
+  zookeeper:
+    image: wurstmeister/zookeeper
+    ports:
+      - 2181:2181
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+  kafka:
+    image: wurstmeister/kafka
+    ports:
+      - 9092:9092
+    environment:
+      KAFKA_ADVERTISED_LISTENERS: LISTENER_DOCKER_INTERNAL://kafka:9093,LISTENER_DOCKER_EXTERNAL://${DOCKER_HOST_IP:-127.0.0.1}:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: LISTENER_DOCKER_INTERNAL:PLAINTEXT,LISTENER_DOCKER_EXTERNAL:PLAINTEXT
+      KAFKA_LISTENERS: LISTENER_DOCKER_INTERNAL://:9093,LISTENER_DOCKER_EXTERNAL://:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: LISTENER_DOCKER_INTERNAL
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+    depends_on:
+      - zookeeper
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+  # Kafka Owl - Apache Kafka Web UI
+  kowl:
+    image: quay.io/cloudhut/kowl:master
+    restart: on-failure  # Unfortunately, this service tries to connect to Kafka before it might be ready
+    ports:
+      - 9000:8080
+    environment:
+      KAFKA_BROKERS: kafka:9093
+    depends_on:
+      - kafka
+    labels:
+      - traefik.enable=true
+      - traefik.port=8080
+      - traefik.http.routers.kowl.rule=Host(`kowl.localhost`)
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+  traefik:
+    image: traefik
+    ports:
+      - 80:80
+      - 8080:8000
+    environment:
+      TRAEFIK_API_INSECURE: 'true'
+      TRAEFIK_PROVIDERS_DOCKER: 'true'
+      TRAEFIK_PROVIDERS_DOCKER_EXPOSEDBYDEFAULT: 'false'
+      TRAEFIK_ENTRYPOINTS_WEB_ADDRESS: :80
+    depends_on:
+      - kowl
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
